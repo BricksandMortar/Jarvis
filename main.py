@@ -14,7 +14,7 @@ except ImportError:
     from scandir import scandir, walk
 
 
-# Recursively loop over the directory structure
+# Recursively loop over the directory structure until it finds a file.
 def get_entries(directory):
     entries = scandir(directory)
     if entries:
@@ -25,7 +25,7 @@ def get_entries(directory):
                 get_entries(entry.path)
 
 
-# Returns false for hidden files like .gitignore or repo specific files likes README and LICENSE, returns false if
+# Returns false for hidden files like .gitignore or repo specific files likes README and LICENSE
 def check_file(filename):
     return not (filename.startswith('.') or filename.rpartition('.')[0].isupper() if filename.__contains__(
         '.') else filename.isupper())
@@ -53,9 +53,10 @@ def exists_directory(dirpath):
         exists_directory(new_path)
         mkdir(path.abspath(dirpath))
 
+# Takes a directory and attempts to get the .git directory
 
-def get_github_repo_name(path_to):
-    git_dir = path_to + '.git'
+# Takes a repository path and gets a Github repo name from it
+def get_github_repo_name(git_dir):
     if path.exists(git_dir):
         with open(git_dir + '/config', 'r') as git_config:
             for line in git_config:
@@ -66,30 +67,56 @@ def get_github_repo_name(path_to):
                     else:
                         logging.info('Git url is ' + url)
                         return url.rpartition('.git')[0].rpartition('/')[2]
+    else:
+        logging.warning('No .git directory found')
+
+def get_github_org_name(git_dir):
+    if path.exists(git_dir):
+        with open(git_dir + '/config', 'r') as git_config:
+            for line in git_config:
+                if line.__contains__('origin'):
+                    url = git_config.__next__()
+                    if not url.__contains__('github.com'):
+                        logging.warning('No Github remote found')
+                    else:
+                        logging.info('Github org/user name is ' + url)
+                        return url.rpartition('/'+get_github_repo_name(git_dir))[0].rpartition('/')[2]
+    else:
+        logging.warning('No .git directory found')
 
 
-parser = argparse.ArgumentParser(description="Setup the jekyll-template in a gh-pages repository")
+parser = argparse.ArgumentParser(description="Setups a jekyll template in a gh-pages repository")
 parser.add_argument("--input", required=True, help="The directory where the jekyll template is stored", dest='in_path')
 parser.add_argument("--output", nargs='?', default='./', const='./', help="The directory of the gh-pages repository",
                     dest='out_path')
+parser.add_argument("--user-name, --org-name", nargs='?', default=False, const=False, help="The name of the user or organisation the repository belongs to. If not provided it is attempted to be scraped from the .git directory", dest='org_name')
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 args = parser.parse_args()
 
-# Loop over directory arguments making sure they:
+# Loop over directory path arguments making sure they:
 # * All end in '/', important for joining together the paths
 # * Exist
 for key, value in args.__dict__.items():
-    if not (value.endswith('/') or value.endswith('\\')):
+    if ('path') in key and not (value.endswith('/') or value.endswith('\\')):
         value += '/'
     if not path.exists(value):
         raise ValueError('Directory specified {} not found'.format(value))
 
 in_path = args.__dict__['in_path']
 out_path = args.__dict__['out_path']
-# TODO change this to be a command line param
-org_name = 'BricksandMortar'
+org_name = args.__dict__['org_name']
+# May not exist
+git_dir = (out_path + '.git')
+
+if org_name is False:
+    if path.exists(git_dir):
+        org_name = get_github_repo_name(git_dir)
+        if not isinstance(org_name, str):
+            raise ValueError('No org or username was specified and no existing value could be found from .git directory')
+    else:
+        raise ValueError('Git directory specified {} not found'.format(git_dir))
 
 matches = []
 get_entries(in_path)
@@ -117,12 +144,13 @@ with open(out_path + '.gitignore', 'a') as gitignore:
     gitignore.write('#Endignore copied from jekyll-docs template\n')
 
 # Attempt to get repository name from .git config
-repo_name = get_github_repo_name(out_path)
+repo_name = get_github_repo_name(git_dir)
 if repo_name is not None:
     logging.info('Repo name is: ' + repo_name)
 else:
     logging.warning(
         'Cannot ignore other branch files. Not a Git repository or valid repository name could not be found')
+    sys.exit()
 
 # Query which branches exist for the repo
 # https://api.github.com/repos/:org/:repo/branches
