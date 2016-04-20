@@ -70,6 +70,7 @@ def get_github_repo_name(git_dir):
     else:
         logging.warning('No .git directory found')
 
+
 def get_github_org_name(git_dir):
     if path.exists(git_dir):
         with open(git_dir + '/config', 'r') as git_config:
@@ -99,8 +100,9 @@ args = parser.parse_args()
 # * All end in '/', important for joining together the paths
 # * Exist
 for key, value in args.__dict__.items():
-    if ('path') in key and not (value.endswith('/') or value.endswith('\\')):
+    if ('path') in key and not (value.endswith('/') or not value.endswith('\\')):
         value += '/'
+        value.replace('\\', '/')
     if not path.exists(value):
         raise ValueError('Directory specified {} not found'.format(value))
 
@@ -108,11 +110,14 @@ in_path = args.__dict__['in_path']
 out_path = args.__dict__['out_path']
 org_name = args.__dict__['org_name']
 # May not exist
-git_dir = (out_path + '.git')
+if out_path.endswith('/'):
+    git_dir = (out_path + '.git')
+else:
+    git_dir = (out_path + '/.git')
 
 if org_name is False:
     if path.exists(git_dir):
-        org_name = get_github_repo_name(git_dir)
+        org_name = get_github_org_name(git_dir)
         if not isinstance(org_name, str):
             raise ValueError('No org or username was specified and no existing value could be found from .git directory')
     else:
@@ -125,6 +130,7 @@ get_entries(in_path)
 copies = []
 for entry in matches:
     safe_path = entry.path.replace("\\", "/")
+    #Path for .gitignore, relative to the repo directory
     rel_git_path = (safe_path.replace(in_path, ''))
     new_path = out_path + rel_git_path
     if path.exists(new_path):
@@ -155,7 +161,9 @@ else:
 # Query which branches exist for the repo
 # https://api.github.com/repos/:org/:repo/branches
 branches = set()
-branch_request = Request('https://api.github.com/repos/' + org_name + '/' + repo_name + '/branches')
+url = 'https://api.github.com/repos/' + org_name + '/' + repo_name + '/branches'
+logging.info('Querying ' + url)
+branch_request = Request(url)
 with urlopen(branch_request) as response:
     if response.status == 200:
         # Get response as a string rather than a series of bytes
@@ -175,8 +183,9 @@ with urlopen(branch_request) as response:
 # https://api.github.com/repos/:org/:repo/git/trees/:branch?recursive=1
 files = set()
 for branch in branches:
-    file_tree_request = Request(
-        'https://api.github.com/repos/' + org_name + '/' + repo_name + '/git/trees/' + branch + '?recursive=1')
+    file_tree_url = 'https://api.github.com/repos/' + org_name + '/' + repo_name + '/git/trees/' + branch + '?recursive=1'
+    logging.info('Querying ' + url)
+    file_tree_request = Request(file_tree_url)
     with urlopen(file_tree_request) as response:
         if response.status == 200:
             str_response = response.read().decode('utf-8')
