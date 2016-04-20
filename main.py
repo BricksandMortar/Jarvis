@@ -43,6 +43,8 @@ def generate_directories(dirpath):
 
 # Recursive algorithm that builds directories if they don't exist
 def exists_directory(dirpath):
+    if dirpath.endswith('\\') or dirpath.endswith('/'):
+        dirpath = dirpath[:-1]
     if path.exists(dirpath):
         return True
     else:
@@ -96,25 +98,26 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 args = parser.parse_args()
 
+args_copy = args.__dict__
 # Loop over directory path arguments making sure they:
 # * All end in '/', important for joining together the paths
 # * Exist
-for key, value in args.__dict__.items():
-    if ('path') in key and not (value.endswith('/') or not value.endswith('\\')):
-        value += '/'
-        value.replace('\\', '/')
+for key, value in args_copy.items():
+    if ('path') in key:
+        value = path.abspath(value)
+        if not (value.endswith('/') or value.endswith('\\')):
+            value += '/'
+        value = value.replace('\\', '/')
+        args_copy[key] = value
     if not path.exists(value):
         raise ValueError('Directory specified {} not found'.format(value))
 
-in_path = args.__dict__['in_path']
-out_path = args.__dict__['out_path']
-org_name = args.__dict__['org_name']
-# May not exist
-if out_path.endswith('/'):
-    git_dir = (out_path + '.git')
-else:
-    git_dir = (out_path + '/.git')
+in_path = args_copy['in_path']
+out_path = args_copy['out_path']
+org_name = args_copy['org_name']
 
+# May not exist
+git_dir = (out_path + '.git')
 if org_name is False:
     if path.exists(git_dir):
         org_name = get_github_org_name(git_dir)
@@ -129,16 +132,15 @@ get_entries(in_path)
 # Loop over valid files from matches and if they don't exist in the destination copy them across
 copies = []
 for entry in matches:
-    safe_path = entry.path.replace("\\", "/")
     #Path for .gitignore, relative to the repo directory
-    rel_git_path = (safe_path.replace(in_path, ''))
+    rel_git_path = (entry.path.replace(in_path, ''))
     new_path = out_path + rel_git_path
     if path.exists(new_path):
         logging.info('Exists ' + new_path)
     else:
         generate_directories(new_path.replace(entry.name, ''))
         logging.debug('Moving ' + entry.path + ' to ' + new_path)
-        shutil.copy(safe_path, new_path)
+        shutil.copy(entry.path, new_path)
         copies.append(rel_git_path)
 
 # Append copied files to .gitignore
@@ -201,7 +203,7 @@ for branch in branches:
 if not len(files) > 0:
     sys.exit()
 else:
-    logging.info(len(files).__str__() + 'files found to ignore')
+    logging.info(len(files).__str__() + ' files found to ignore')
 
 # Write file paths to .gitignore file
 with open(out_path + '.gitignore', 'a') as gitignore:
