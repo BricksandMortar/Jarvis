@@ -1,12 +1,15 @@
 import argparse
 import logging
+import sys
 import shutil
 import json
+import fileinput
+
 
 from os import path, mkdir
 from urllib.request import urlopen, Request
 
-import sys
+
 
 try:
     from os import scandir, walk
@@ -151,8 +154,18 @@ with open(out_path + '.gitignore', 'a') as gitignore:
         gitignore.write(ignore + '\n')
     gitignore.write('#Endignore copied from jekyll-docs template\n')
 
-# Attempt to get repository name from .git config
 repo_name = get_github_repo_name(git_dir)
+
+#Make config.yml
+with fileinput.FileInput(out_path+'_config.yml', inplace=True) as config:
+    for line in config:
+        line.replace('REPLACE', repo_name)
+
+# Make install script
+with fileinput.FileInput(out_path + '/scripts/ciinstall.sh', inplace=True) as config:
+    for line in config:
+        line.replace('GIT_URL', 'https://github.com/BricksandMortar/'+repo_name+'.git')
+
 if repo_name is not None:
     logging.info('Repo name is: ' + repo_name)
 else:
@@ -200,15 +213,13 @@ for branch in branches:
             logging.warning('Request failed: ' + file_tree_request.__str__())
 
 # If no files to write to .gitignore, quit
-if not len(files) > 0:
-    sys.exit()
-else:
+if len(files) > 0:
     logging.info(len(files).__str__() + ' files found to ignore')
 
-# Write file paths to .gitignore file
-with open(out_path + '.gitignore', 'a') as gitignore:
-    gitignore.write('\n#Ignore copied from other repo branch\n')
-    for file_path in files:
-        if check_file(file_path):
-            gitignore.write(file_path + '\n')
-    gitignore.write('#Endignore copied from other repo branch\n')
+    # Write file paths to .gitignore file
+    with open(out_path + '.gitignore', 'a') as gitignore:
+        gitignore.write('\n#Ignore copied from other repo branch\n')
+        for file_path in files:
+            if check_file(file_path):
+                gitignore.write(file_path + '\n')
+        gitignore.write('#Endignore copied from other repo branch\n')
