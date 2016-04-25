@@ -1,12 +1,15 @@
 import argparse
 import logging
+import sys
 import shutil
 import json
 
-from os import path, mkdir
+
+from os import path, mkdir, close, remove
+from tempfile import mkstemp
 from urllib.request import urlopen, Request
 
-import sys
+
 
 try:
     from os import scandir, walk
@@ -87,6 +90,20 @@ def get_github_org_name(git_dir):
     else:
         logging.warning('No .git directory found')
 
+# http://stackoverflow.com/questions/39086/search-and-replace-a-line-in-a-file-in-python
+def replace(file_path, pattern, subst):
+    # Create temp file
+    fh, abs_path = mkstemp()
+    with open(abs_path, 'w') as new_file:
+        with open(file_path) as old_file:
+            for line in old_file:
+                new_file.write(line.replace(pattern, subst))
+    close(fh)
+    # Remove original file
+    remove(file_path)
+    # Move new file
+    shutil.move(abs_path, file_path)
+
 
 parser = argparse.ArgumentParser(description="Setups a jekyll template in a gh-pages repository")
 parser.add_argument("--input", required=True, help="The directory where the jekyll template is stored", dest='in_path')
@@ -94,7 +111,7 @@ parser.add_argument("--output", nargs='?', default='./', const='./', help="The d
                     dest='out_path')
 parser.add_argument("--user-name, --org-name", nargs='?', default=False, const=False, help="The name of the user or organisation the repository belongs to. If not provided it is attempted to be scraped from the .git directory", dest='org_name')
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 args = parser.parse_args()
 
@@ -151,8 +168,13 @@ with open(out_path + '.gitignore', 'a') as gitignore:
         gitignore.write(ignore + '\n')
     gitignore.write('#Endignore copied from jekyll-docs template\n')
 
-# Attempt to get repository name from .git config
 repo_name = get_github_repo_name(git_dir)
+
+#Configure config.yml
+replace(out_path+'_config.yml', 'REPLACE', repo_name)
+# Configure install script
+replace(out_path + 'script/ciinstall.sh', 'GIT_URL', 'https://github.com/BricksandMortar/'+repo_name+'.git')
+
 if repo_name is not None:
     logging.info('Repo name is: ' + repo_name)
 else:
@@ -200,15 +222,13 @@ for branch in branches:
             logging.warning('Request failed: ' + file_tree_request.__str__())
 
 # If no files to write to .gitignore, quit
-if not len(files) > 0:
-    sys.exit()
-else:
+if len(files) > 0:
     logging.info(len(files).__str__() + ' files found to ignore')
 
-# Write file paths to .gitignore file
-with open(out_path + '.gitignore', 'a') as gitignore:
-    gitignore.write('\n#Ignore copied from other repo branch\n')
-    for file_path in files:
-        if check_file(file_path):
-            gitignore.write(file_path + '\n')
-    gitignore.write('#Endignore copied from other repo branch\n')
+    # Write file paths to .gitignore file
+    with open(out_path + '.gitignore', 'a') as gitignore:
+        gitignore.write('\n#Ignore copied from other repo branch\n')
+        for file_path in files:
+            if check_file(file_path):
+                gitignore.write(file_path + '\n')
+        gitignore.write('#Endignore copied from other repo branch\n')
