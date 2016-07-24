@@ -4,9 +4,11 @@ import sys
 import shutil
 import requests
 
-from os import path, mkdir, close, remove, scandir
+from pathlib import Path, PosixPath
+from os import path, mkdir, close, remove, scandir, name, makedirs
 from tempfile import mkstemp
 
+isUnix = False
 
 # Recursively loop over the directory structure until it finds a file.
 def get_entries(directory):
@@ -31,8 +33,7 @@ def check_directory(dirname):
 
 
 def generate_directories(dirpath):
-    dirpath.rstrip('/\\')
-    exists_directory(dirpath)
+    makedirs(dirpath, exist_ok=True)
 
 
 def get_token():
@@ -41,20 +42,6 @@ def get_token():
             if line.__contains__('token'):
                 return line.rpartition(' ')[1]
 
-
-# Recursive algorithm that builds directories if they don't exist
-def exists_directory(dirpath):
-    if dirpath.endswith('\\') or dirpath.endswith('/'):
-        dirpath = dirpath[:-1]
-    if path.exists(dirpath):
-        return True
-    else:
-        delim_1 = dirpath.rfind('\\')
-        delim_2 = dirpath.rfind('/')
-        split = delim_1 if delim_1 > delim_2 else delim_2
-        new_path = dirpath[:split]
-        exists_directory(new_path)
-        mkdir(path.abspath(dirpath))
 
 # Takes a repository path and gets a Github repo name from it
 def get_github_repo_name(git_dir):
@@ -115,8 +102,8 @@ def trigger_build(out_dir, repo_id):
 
 
 parser = argparse.ArgumentParser(description="Setups a jekyll template in a gh-pages repository")
-parser.add_argument("--input", required=True, help="The directory where the jekyll template is stored", dest='in_path')
-parser.add_argument("--output", nargs='?', default='./', const='./', help="The directory of the gh-pages repository",
+parser.add_argument("--in", required=True, help="The directory where the jekyll template is stored", dest='in_path')
+parser.add_argument("--out", nargs='?', default='./', const='./', help="The directory of the gh-pages repository",
                     dest='out_path')
 parser.add_argument("--user-name, --org-name", nargs='?', default=False, const=False, help="The name of the user or organisation the repository belongs to. If not provided it is attempted to be scraped from the .git directory", dest='org_name')
 parser.add_argument("--token", nargs='?', default=None, const=None, help="The token used to authenticate Travis API calls", dest='token')
@@ -131,10 +118,8 @@ args_copy = args.__dict__
 # * Exist
 for key, value in args_copy.items():
     if 'path' in key:
-        value = path.abspath(value)
-        if not (value.endswith('/') or value.endswith('\\')):
-            value += '/'
-        value = value.replace('\\', '/')
+        value = path.expanduser(value)
+        value = path.normpath(value)
         args_copy[key] = value
         if not path.exists(value):
             raise ValueError('Directory specified {} not found'.format(value))
@@ -145,7 +130,7 @@ org_name = args_copy['org_name']
 token = args_copy['token']
 
 # May not exist
-git_dir = (out_path + '.git')
+git_dir = path.join(out_path + '/.git')
 if org_name is False:
     if path.exists(git_dir):
         org_name = get_github_org_name(git_dir)
@@ -161,12 +146,12 @@ get_entries(in_path)
 copies = []
 for entry in matches:
     #Path for .gitignore, relative to the repo directory
-    rel_git_path = (entry.path.replace(in_path, ''))
-    new_path = out_path + rel_git_path
+    rel_git_path = path.relpath(entry.path, in_path)
+    new_path = path.join(out_path, rel_git_path)
     if path.exists(new_path):
         logging.info('Exists ' + new_path)
     else:
-        generate_directories(new_path.replace(entry.name, ''))
+        generate_directories(path.dirname(new_path))
         logging.debug('Moving ' + entry.path + ' to ' + new_path)
         shutil.copy(entry.path, new_path)
         copies.append(rel_git_path)
@@ -182,9 +167,9 @@ with open(out_path + '.gitignore', 'a') as gitignore:
 repo_name = get_github_repo_name(git_dir)
 
 #Configure config.yml
-replace(out_path+'_config.yml', 'REPLACE', repo_name)
+replace(out_path+'/_config.yml', 'REPLACE', repo_name)
 # Configure install script
-replace(out_path + 'script/ciinstall.sh', 'GIT_URL', 'https://github.com/BricksandMortar/'+repo_name+'.git')
+replace(out_path + '/script/ciinstall.sh', 'GIT_URL', 'https://github.com/BricksandMortar/'+repo_name+'/.git')
 
 if repo_name is not None:
     logging.info('Repo name is: ' + repo_name)
@@ -231,7 +216,7 @@ if branches is not None:
         logging.info(len(files).__str__() + ' files found to ignore')
 
         # Write file paths to .gitignore file
-        with open(out_path + '.gitignore', 'a') as gitignore:
+        with open(out_path + '/.gitignore', 'a') as gitignore:
             gitignore.write('\n#Ignore copied from other repo branch\n')
             for file_path in files:
                 if check_file(file_path):
